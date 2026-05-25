@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RecipeSnap — Save Recipes from Any Video</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="navbar">
+  <a href="/" class="nav-logo">🍴 RecipeSnap</a>
+  <a href="/library" class="nav-link">My Recipes</a>
+</nav>
+
+<!-- Hero -->
+<main class="hero-section">
+  <div class="hero-content">
+    <h1 class="hero-title">Turn any cooking video<br>into a saved recipe</h1>
+    <p class="hero-sub">Paste a link from TikTok, YouTube, Instagram, or Facebook.<br>We'll extract the recipe automatically.</p>
+
+    <!-- URL Input Card -->
+    <div class="input-card" id="input-card">
+      <div class="platform-icons">
+        <span title="TikTok">🎵</span>
+        <span title="YouTube">▶️</span>
+        <span title="Instagram">📸</span>
+        <span title="Facebook">👥</span>
+      </div>
+
+      <div class="url-input-row">
+        <input
+          type="url"
+          id="video-url"
+          class="url-input"
+          placeholder="Paste video URL here..."
+          autocomplete="off"
+        />
+        <button id="extract-btn" class="btn-primary" onclick="startExtraction()">
+          Get Recipe
+        </button>
+      </div>
+
+      <!-- Status / Progress -->
+      <div id="status-area" class="status-area hidden">
+        <div class="spinner"></div>
+        <span id="status-text">Processing video…</span>
+      </div>
+
+      <!-- Error Message -->
+      <div id="error-area" class="error-area hidden">
+        <span id="error-text"></span>
+      </div>
+    </div>
+
+    <!-- Manual paste fallback -->
+    <div id="manual-area" class="input-card hidden" style="margin-top:16px; text-align:left;">
+      <p style="font-weight:600; margin-bottom:8px;">📋 Paste the video transcript or description</p>
+      <p style="font-size:0.85rem; color:#666; margin-bottom:12px;">
+        Auto-extraction failed (the platform blocked our server). You can still get your recipe by pasting the text manually.<br><br>
+        <strong>For YouTube:</strong> Open the video → click <strong>⋯ More</strong> under the video → <strong>Show transcript</strong> → select all text → copy → paste below.
+      </p>
+      <textarea id="manual-text" rows="8" placeholder="Paste the video transcript or description here..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:0.9rem;font-family:inherit;resize:vertical;"></textarea>
+      <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn-primary" onclick="extractFromText()">Extract Recipe from Text</button>
+        <button class="btn-secondary" onclick="hideManual()">Cancel</button>
+      </div>
+      <div id="manual-status" class="status-area hidden" style="margin-top:10px;">
+        <div class="spinner"></div>
+        <span>Extracting recipe with Claude…</span>
+      </div>
+      <div id="manual-error" class="error-area hidden"></div>
+    </div>
+
+    <p class="hint-text">Works with public videos only · No account needed to try</p>
+  </div>
+</main>
+
+<!-- Recipe Preview (shown after extraction) -->
+<div id="recipe-preview" class="recipe-preview-section hidden">
+  <div class="preview-container">
+    <div class="preview-header">
+      <div class="preview-meta">
+        <span id="preview-platform" class="platform-badge"></span>
+        <a id="preview-source" href="#" target="_blank" class="source-link">View original video ↗</a>
+      </div>
+      <h2 id="preview-title" class="preview-title"></h2>
+      <p id="preview-description" class="preview-desc"></p>
+    </div>
+
+    <div class="preview-body">
+      <!-- Left column: Details -->
+      <div class="preview-details">
+        <div class="detail-grid">
+          <div class="detail-item" id="detail-servings-wrap">
+            <span class="detail-icon">🍽️</span>
+            <div><span class="detail-label">Servings</span><br><span id="detail-servings" class="detail-value"></span></div>
+          </div>
+          <div class="detail-item" id="detail-prep-wrap">
+            <span class="detail-icon">⏱️</span>
+            <div><span class="detail-label">Prep</span><br><span id="detail-prep" class="detail-value"></span></div>
+          </div>
+          <div class="detail-item" id="detail-cook-wrap">
+            <span class="detail-icon">🔥</span>
+            <div><span class="detail-label">Cook</span><br><span id="detail-cook" class="detail-value"></span></div>
+          </div>
+          <div class="detail-item" id="detail-diff-wrap">
+            <span class="detail-icon">📊</span>
+            <div><span class="detail-label">Difficulty</span><br><span id="detail-difficulty" class="detail-value"></span></div>
+          </div>
+        </div>
+
+        <!-- Ingredients -->
+        <div class="section-block">
+          <h3 class="section-title">Ingredients</h3>
+          <ul id="ingredients-list" class="ingredients-list"></ul>
+        </div>
+
+        <!-- Tips -->
+        <div class="section-block" id="tips-block">
+          <h3 class="section-title">Tips & Notes</h3>
+          <p id="tips-text" class="tips-text"></p>
+        </div>
+      </div>
+
+      <!-- Right column: Instructions -->
+      <div class="preview-instructions">
+        <h3 class="section-title">Instructions</h3>
+        <ol id="instructions-list" class="instructions-list"></ol>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="preview-actions">
+      <button class="btn-primary btn-large" onclick="saveRecipe()">
+        💾 Save to My Recipes
+      </button>
+      <button class="btn-secondary btn-large" onclick="resetForm()">
+        Try Another Video
+      </button>
+    </div>
+
+    <div id="save-status" class="save-status hidden"></div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>Made with ❤️ · <a href="/library">View all saved recipes</a></p>
+</footer>
+
+<script src="/static/app.js"></script>
+<script>
+  // Allow pressing Enter in URL input
+  document.getElementById("video-url").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") startExtraction();
+  });
+</script>
+
+</body>
+</html>

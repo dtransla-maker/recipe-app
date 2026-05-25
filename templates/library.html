@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Recipes — RecipeSnap</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="navbar">
+  <a href="/" class="nav-logo">🍴 RecipeSnap</a>
+  <a href="/library" class="nav-link nav-active">My Recipes</a>
+</nav>
+
+<main class="library-main">
+  <div class="library-header">
+    <h1 class="page-title">My Recipe Book</h1>
+    <a href="/" class="btn-primary">+ Add Recipe</a>
+  </div>
+
+  <!-- Search & Filter -->
+  <div class="search-bar-row">
+    <input
+      type="text"
+      id="search-input"
+      class="search-input"
+      placeholder="Search recipes..."
+      oninput="filterRecipes()"
+    />
+    <select id="platform-filter" class="filter-select" onchange="filterRecipes()">
+      <option value="">All Platforms</option>
+      <option value="YouTube">YouTube</option>
+      <option value="TikTok">TikTok</option>
+      <option value="Instagram">Instagram</option>
+      <option value="Facebook">Facebook</option>
+    </select>
+    <select id="difficulty-filter" class="filter-select" onchange="filterRecipes()">
+      <option value="">All Difficulties</option>
+      <option value="Easy">Easy</option>
+      <option value="Medium">Medium</option>
+      <option value="Hard">Hard</option>
+    </select>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading-area" class="loading-area">
+    <div class="spinner"></div>
+    <p>Loading your recipes…</p>
+  </div>
+
+  <!-- Empty state -->
+  <div id="empty-state" class="empty-state hidden">
+    <p class="empty-icon">📖</p>
+    <h2>No recipes yet</h2>
+    <p>Paste a cooking video URL on the home page to get started.</p>
+    <a href="/" class="btn-primary">Add Your First Recipe</a>
+  </div>
+
+  <!-- Recipe Grid -->
+  <div id="recipe-grid" class="recipe-grid hidden"></div>
+
+  <!-- No results after filter -->
+  <div id="no-results" class="empty-state hidden">
+    <p class="empty-icon">🔍</p>
+    <h2>No matches found</h2>
+    <p>Try adjusting your search or filters.</p>
+  </div>
+</main>
+
+<footer class="footer">
+  <p>Made with ❤️ · <a href="/">Add a new recipe</a></p>
+</footer>
+
+<script src="/static/app.js"></script>
+<script>
+  let allRecipes = [];
+
+  async function loadRecipes() {
+    try {
+      const res = await fetch("/api/recipes");
+      const data = await res.json();
+      allRecipes = data.recipes || [];
+      document.getElementById("loading-area").classList.add("hidden");
+
+      if (allRecipes.length === 0) {
+        document.getElementById("empty-state").classList.remove("hidden");
+      } else {
+        document.getElementById("recipe-grid").classList.remove("hidden");
+        renderRecipes(allRecipes);
+      }
+    } catch (e) {
+      document.getElementById("loading-area").innerHTML = '<p class="error-text">Failed to load recipes. Please refresh the page.</p>';
+    }
+  }
+
+  function filterRecipes() {
+    const query = document.getElementById("search-input").value.toLowerCase();
+    const platform = document.getElementById("platform-filter").value;
+    const difficulty = document.getElementById("difficulty-filter").value;
+
+    const filtered = allRecipes.filter(r => {
+      const matchesSearch = !query ||
+        r.title.toLowerCase().includes(query) ||
+        (r.description || "").toLowerCase().includes(query) ||
+        (r.tags || []).some(t => t.toLowerCase().includes(query));
+      const matchesPlatform = !platform || r.platform === platform;
+      const matchesDifficulty = !difficulty || r.difficulty === difficulty;
+      return matchesSearch && matchesPlatform && matchesDifficulty;
+    });
+
+    document.getElementById("recipe-grid").classList.toggle("hidden", filtered.length === 0);
+    document.getElementById("no-results").classList.toggle("hidden", filtered.length > 0 || allRecipes.length === 0);
+
+    if (filtered.length > 0) renderRecipes(filtered);
+  }
+
+  function renderRecipes(recipes) {
+    const grid = document.getElementById("recipe-grid");
+    grid.innerHTML = recipes.map(recipe => `
+      <a href="/recipe/${recipe.id}" class="recipe-card">
+        <div class="recipe-card-thumb">
+          ${recipe.thumbnail_url
+            ? `<img src="${recipe.thumbnail_url}" alt="${escapeHtml(recipe.title)}" onerror="this.parentElement.innerHTML='<span class=\\'thumb-placeholder\\'>🍳</span>'" />`
+            : '<span class="thumb-placeholder">🍳</span>'
+          }
+          <span class="platform-badge platform-badge-overlay">${recipe.platform || ''}</span>
+        </div>
+        <div class="recipe-card-body">
+          <h3 class="recipe-card-title">${escapeHtml(recipe.title)}</h3>
+          <p class="recipe-card-desc">${escapeHtml((recipe.description || '').substring(0, 100))}${(recipe.description || '').length > 100 ? '…' : ''}</p>
+          <div class="recipe-card-meta">
+            ${recipe.total_time ? `<span>⏱️ ${escapeHtml(recipe.total_time)}</span>` : ''}
+            ${recipe.servings ? `<span>🍽️ ${escapeHtml(recipe.servings)}</span>` : ''}
+            ${recipe.difficulty ? `<span class="difficulty-badge diff-${(recipe.difficulty || '').toLowerCase()}">${escapeHtml(recipe.difficulty)}</span>` : ''}
+          </div>
+          ${(recipe.tags || []).length > 0 ? `
+            <div class="tag-row">
+              ${recipe.tags.slice(0, 3).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
+            </div>` : ''}
+        </div>
+      </a>
+    `).join('');
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  loadRecipes();
+</script>
+
+</body>
+</html>

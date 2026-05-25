@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recipe — RecipeSnap</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="navbar">
+  <a href="/" class="nav-logo">🍴 RecipeSnap</a>
+  <a href="/library" class="nav-link">My Recipes</a>
+</nav>
+
+<main class="recipe-detail-main">
+
+  <!-- Loading -->
+  <div id="loading-area" class="loading-area">
+    <div class="spinner"></div>
+    <p>Loading recipe…</p>
+  </div>
+
+  <!-- Error -->
+  <div id="error-area" class="error-area hidden">
+    <p id="error-text"></p>
+    <a href="/library" class="btn-secondary">Back to Library</a>
+  </div>
+
+  <!-- Recipe Content -->
+  <div id="recipe-content" class="recipe-detail hidden">
+
+    <!-- Back link -->
+    <a href="/library" class="back-link">← Back to My Recipes</a>
+
+    <!-- Header -->
+    <div class="detail-header">
+      <div class="detail-header-text">
+        <div class="detail-meta-row">
+          <span id="d-platform" class="platform-badge"></span>
+          <a id="d-source" href="#" target="_blank" class="source-link">View original video ↗</a>
+        </div>
+        <h1 id="d-title" class="detail-title"></h1>
+        <p id="d-description" class="detail-description"></p>
+
+        <!-- Quick stats -->
+        <div class="detail-stats" id="d-stats"></div>
+
+        <!-- Tags -->
+        <div id="d-tags" class="tag-row"></div>
+      </div>
+
+      <div id="d-thumb-wrap" class="detail-thumb-wrap">
+        <img id="d-thumb" src="" alt="" class="detail-thumb" onerror="this.parentElement.style.display='none'" />
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="detail-body">
+      <!-- Ingredients -->
+      <div class="detail-ingredients">
+        <h2 class="section-title">Ingredients</h2>
+        <ul id="d-ingredients" class="ingredients-list"></ul>
+      </div>
+
+      <!-- Instructions -->
+      <div class="detail-instructions">
+        <h2 class="section-title">Instructions</h2>
+        <ol id="d-instructions" class="instructions-list numbered"></ol>
+      </div>
+    </div>
+
+    <!-- Tips -->
+    <div id="d-tips-block" class="section-block tips-card hidden">
+      <h2 class="section-title">💡 Tips & Notes</h2>
+      <p id="d-tips"></p>
+    </div>
+
+    <!-- Actions -->
+    <div class="detail-actions">
+      <button class="btn-primary" onclick="window.print()">🖨️ Print Recipe</button>
+      <button class="btn-danger" onclick="confirmDelete()">🗑️ Delete</button>
+    </div>
+
+  </div>
+</main>
+
+<footer class="footer">
+  <p>Made with ❤️ · <a href="/">Add another recipe</a></p>
+</footer>
+
+<script src="/static/app.js"></script>
+<script>
+  const recipeId = "{{ recipe_id }}";
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  async function loadRecipe() {
+    try {
+      const res = await fetch(`/api/recipes/${recipeId}`);
+      if (!res.ok) throw new Error("Recipe not found");
+      const data = await res.json();
+      const r = data.recipe;
+
+      document.title = `${r.title} — RecipeSnap`;
+      document.getElementById("loading-area").classList.add("hidden");
+      document.getElementById("recipe-content").classList.remove("hidden");
+
+      // Header
+      document.getElementById("d-platform").textContent = r.platform || "";
+      if (r.source_url) {
+        document.getElementById("d-source").href = r.source_url;
+      } else {
+        document.getElementById("d-source").style.display = "none";
+      }
+      document.getElementById("d-title").textContent = r.title;
+      document.getElementById("d-description").textContent = r.description || "";
+
+      // Thumbnail
+      if (r.thumbnail_url) {
+        document.getElementById("d-thumb").src = r.thumbnail_url;
+        document.getElementById("d-thumb").alt = r.title;
+      } else {
+        document.getElementById("d-thumb-wrap").style.display = "none";
+      }
+
+      // Stats
+      const stats = [];
+      if (r.servings) stats.push(`<div class="stat-item"><span class="stat-icon">🍽️</span><span class="stat-label">Servings</span><span class="stat-value">${escapeHtml(r.servings)}</span></div>`);
+      if (r.prep_time) stats.push(`<div class="stat-item"><span class="stat-icon">⏱️</span><span class="stat-label">Prep</span><span class="stat-value">${escapeHtml(r.prep_time)}</span></div>`);
+      if (r.cook_time) stats.push(`<div class="stat-item"><span class="stat-icon">🔥</span><span class="stat-label">Cook</span><span class="stat-value">${escapeHtml(r.cook_time)}</span></div>`);
+      if (r.total_time) stats.push(`<div class="stat-item"><span class="stat-icon">⏰</span><span class="stat-label">Total</span><span class="stat-value">${escapeHtml(r.total_time)}</span></div>`);
+      if (r.difficulty) stats.push(`<div class="stat-item"><span class="stat-icon">📊</span><span class="stat-label">Difficulty</span><span class="stat-value difficulty-badge diff-${(r.difficulty||'').toLowerCase()}">${escapeHtml(r.difficulty)}</span></div>`);
+      document.getElementById("d-stats").innerHTML = stats.join('');
+
+      // Tags
+      if ((r.tags || []).length > 0) {
+        document.getElementById("d-tags").innerHTML = r.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
+      }
+
+      // Ingredients
+      const ingList = document.getElementById("d-ingredients");
+      (r.ingredients || []).forEach(ing => {
+        const li = document.createElement("li");
+        li.className = "ingredient-item";
+        li.innerHTML = `<span class="ing-check">☐</span> ${escapeHtml(ing)}`;
+        li.querySelector(".ing-check").addEventListener("click", function() {
+          this.textContent = this.textContent === "☐" ? "☑" : "☐";
+          li.classList.toggle("checked");
+        });
+        ingList.appendChild(li);
+      });
+
+      // Instructions
+      const insList = document.getElementById("d-instructions");
+      (r.instructions || []).forEach((step, i) => {
+        const li = document.createElement("li");
+        li.className = "instruction-item";
+        li.textContent = step;
+        insList.appendChild(li);
+      });
+
+      // Tips
+      if (r.tips && r.tips.trim()) {
+        document.getElementById("d-tips-block").classList.remove("hidden");
+        document.getElementById("d-tips").textContent = r.tips;
+      }
+
+    } catch (e) {
+      document.getElementById("loading-area").classList.add("hidden");
+      document.getElementById("error-area").classList.remove("hidden");
+      document.getElementById("error-text").textContent = e.message || "Failed to load recipe.";
+    }
+  }
+
+  async function confirmDelete() {
+    if (!confirm("Are you sure you want to delete this recipe? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/recipes/${recipeId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      window.location.href = "/library";
+    } catch (e) {
+      alert("Failed to delete recipe. Please try again.");
+    }
+  }
+
+  loadRecipe();
+</script>
+
+</body>
+</html>
