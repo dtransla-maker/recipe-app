@@ -105,12 +105,42 @@ function showRecipePreview(recipe) {
   if (sourceLink && recipe.source_url) sourceLink.href = recipe.source_url;
 
   // Title & description
-  // Thumbnail
-  const thumbWrap = document.getElementById("preview-thumb-wrap");
-  const thumbImg  = document.getElementById("preview-thumbnail");
-  if (recipe.thumbnail_url) {
-    thumbImg.src = recipe.thumbnail_url;
-    thumbWrap.classList.remove("hidden");
+  // Video embed
+  const thumbWrap  = document.getElementById("preview-thumb-wrap");
+  const embedDiv   = document.getElementById("preview-embed");
+  const platform   = recipe.platform || "";
+  const sourceUrl  = recipe.source_url || "";
+  embedDiv.innerHTML = "";
+  if (sourceUrl) {
+    let embedHtml = "";
+    if (platform === "YouTube") {
+      // Extract YouTube video ID
+      const ytMatch = sourceUrl.match(/[?&]v=([a-zA-Z0-9_-]{11})/) ||
+                      sourceUrl.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+      if (ytMatch) {
+        embedHtml = `<iframe width="100%" height="280" src="https://www.youtube.com/embed/${ytMatch[1]}" frameborder="0" allowfullscreen style="border-radius:12px;"></iframe>`;
+      }
+    } else if (platform === "Facebook") {
+      const encoded = encodeURIComponent(sourceUrl);
+      embedHtml = `<iframe src="https://www.facebook.com/plugins/video.php?href=${encoded}&show_text=false&width=500" width="100%" height="280" frameborder="0" allowfullscreen style="border-radius:12px;"></iframe>`;
+    } else if (platform === "TikTok") {
+      // TikTok embed — extract video ID
+      const ttMatch = sourceUrl.match(/video\/(\d+)/);
+      if (ttMatch) {
+        embedHtml = `<blockquote class="tiktok-embed" cite="${sourceUrl}" data-video-id="${ttMatch[1]}" style="border-radius:12px;"><section></section></blockquote><script async src="https://www.tiktok.com/embed.js"><\/script>`;
+      }
+    } else if (platform === "Instagram") {
+      embedHtml = `<iframe src="${sourceUrl.replace(/\/$/, '')}/embed" width="100%" height="480" frameborder="0" allowfullscreen style="border-radius:12px;"></iframe>`;
+    }
+    if (embedHtml) {
+      embedDiv.innerHTML = embedHtml;
+      thumbWrap.classList.remove("hidden");
+    } else if (recipe.thumbnail_url) {
+      embedDiv.innerHTML = `<img src="${recipe.thumbnail_url}" style="width:100%;border-radius:12px;max-height:280px;object-fit:cover;" onerror="document.getElementById('preview-thumb-wrap').classList.add('hidden')" />`;
+      thumbWrap.classList.remove("hidden");
+    } else {
+      thumbWrap.classList.add("hidden");
+    }
   } else {
     thumbWrap.classList.add("hidden");
   }
