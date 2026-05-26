@@ -197,7 +197,10 @@ def extract_via_assemblyai(url, platform, title="", thumbnail_url=""):
     transcript_text = ""
     with tempfile.TemporaryDirectory() as tmpdir:
         audio_path = os.path.join(tmpdir, "audio.mp3")
+        audio_path_raw = os.path.join(tmpdir, "audio.%(ext)s")
         print(f"[yt-dlp] Downloading audio for {platform}...")
+
+        # Try with MP3 conversion first (requires ffmpeg)
         dl_proc = subprocess.run(
             base_args + [
                 "--extract-audio", "--audio-format", "mp3",
@@ -207,6 +210,26 @@ def extract_via_assemblyai(url, platform, title="", thumbnail_url=""):
             ],
             capture_output=True, text=True, timeout=300
         )
+
+        # If ffmpeg not found, fall back to raw audio download (m4a/webm/etc.)
+        if dl_proc.returncode != 0 and (
+            "ffprobe" in (dl_proc.stderr or "") or "ffmpeg" in (dl_proc.stderr or "")
+        ):
+            print("[yt-dlp] ffmpeg not found -- retrying without audio conversion...")
+            dl_proc = subprocess.run(
+                base_args + [
+                    "--format", "bestaudio/best",
+                    "-o", audio_path_raw,
+                    url,
+                ],
+                capture_output=True, text=True, timeout=300
+            )
+            # Find whatever file was actually downloaded
+            import glob
+            found = glob.glob(os.path.join(tmpdir, "audio.*"))
+            if found:
+                audio_path = found[0]
+                print(f"[yt-dlp] Downloaded raw audio: {os.path.basename(audio_path)}")
 
         if dl_proc.returncode != 0 or not os.path.exists(audio_path):
             stderr_raw = (dl_proc.stderr or dl_proc.stdout or "").strip()
@@ -437,41 +460,4 @@ def api_delete_recipe(recipe_id):
         get_supabase().table("recipes").delete().eq("id", recipe_id).execute()
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/recipes/<recipe_id>", methods=["PUT"])
-def api_update_recipe(recipe_id):
-    data = request.get_json() or {}
-    allowed = ["title","description","servings","prep_time","cook_time",
-               "total_time","difficulty","ingredients","instructions",
-               "tips","tags","thumbnail_url"]
-    update = {k: v for k, v in data.items() if k in allowed}
-    try:
-        sb  = get_supabase()
-        res = sb.table("recipes").update(update).eq("id", recipe_id).execute()
-        return jsonify({"success": True, "recipe": res.data[0] if res.data else {}})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/health", methods=["GET"])
-def api_health():
-    here = os.path.dirname(os.path.abspath(__file__))
-    cookies_file = os.path.join(here, "cookies.txt")
-    cookies_ok = (
-        (os.path.exists(cookies_file) and os.path.getsize(cookies_file) > 0)
-        or bool(os.environ.get("COOKIES_CONTENT"))
-    )
-    status = {
-        "assemblyai": bool(os.environ.get("ASSEMBLYAI_API_KEY")),
-        "anthropic":  bool(os.environ.get("ANTHROPIC_API_KEY")),
-        "supabase":   bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
-        "cookies":    cookies_ok,
-    }
-    return jsonify({"ok": all(status.values()), "services": status})
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+        return jsonify({"error": str(e)}),
