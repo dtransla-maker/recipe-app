@@ -3,7 +3,7 @@ flask-cors==4.0.1
 gunicorn==21.2.0
 assemblyai>=0.17.0
 anthropic==0.34.2
-supabase==2.7.4
+supabase>=2.10.0
 python-dotenv==1.0.1
 yt-dlp
 youtube-transcript-api
