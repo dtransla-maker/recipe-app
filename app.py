@@ -272,8 +272,9 @@ def extract_via_assemblyai(url, platform, title="", thumbnail_url=""):
         aai.settings.api_key = aai_key
 
         print(f"[assemblyai] Transcribing {file_kb} KB audio...")
+        config = aai.TranscriptionConfig(speech_model=aai.SpeechModel.best)
         transcriber = aai.Transcriber()
-        result      = transcriber.transcribe(audio_path)
+        result      = transcriber.transcribe(audio_path, config=config)
 
         if result.status == aai.TranscriptStatus.error:
             raise RuntimeError(f"Transcription failed: {result.error}")
