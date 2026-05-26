@@ -105,6 +105,15 @@ function showRecipePreview(recipe) {
   if (sourceLink && recipe.source_url) sourceLink.href = recipe.source_url;
 
   // Title & description
+  // Thumbnail
+  const thumbWrap = document.getElementById("preview-thumb-wrap");
+  const thumbImg  = document.getElementById("preview-thumbnail");
+  if (recipe.thumbnail_url) {
+    thumbImg.src = recipe.thumbnail_url;
+    thumbWrap.classList.remove("hidden");
+  } else {
+    thumbWrap.classList.add("hidden");
+  }
   setText("preview-title", recipe.title);
   setText("preview-description", recipe.description);
 

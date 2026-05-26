@@ -83,6 +83,10 @@
 <div id="recipe-preview" class="recipe-preview-section hidden">
   <div class="preview-container">
     <div class="preview-header">
+      <div id="preview-thumb-wrap" class="preview-thumb-wrap hidden">
+        <img id="preview-thumbnail" class="preview-thumbnail" src="" alt="Video thumbnail"
+             onerror="document.getElementById('preview-thumb-wrap').classList.add('hidden')" />
+      </div>
       <div class="preview-meta">
         <span id="preview-platform" class="platform-badge"></span>
         <a id="preview-source" href="#" target="_blank" class="source-link">View original video ↗</a>
