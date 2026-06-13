@@ -21,7 +21,7 @@ async function startExtraction() {
     // Step 1: start extraction
     setLoading(true, "Extracting transcript from video…");
 
-    const res = await fetch("/api/extract", {
+    const res = await authFetch("/api/extract", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url })
@@ -212,7 +212,7 @@ async function saveRecipe() {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
 
   try {
-    const res = await fetch("/api/recipes", {
+    const res = await authFetch("/api/recipes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(currentRecipe)
@@ -270,7 +270,7 @@ async function extractFromText() {
   if (errorEl)  errorEl.classList.add("hidden");
 
   try {
-    const res = await fetch("/api/extract-text", {
+    const res = await authFetch("/api/extract-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, url })

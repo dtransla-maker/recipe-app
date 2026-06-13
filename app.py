@@ -6,16 +6,49 @@ import tempfile
 import traceback
 import urllib.request
 import urllib.parse
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
+import uuid
+from datetime import datetime, timezone
+from flask import Flask, g, request, jsonify, render_template
+from flask_limiter import Limiter
 import anthropic
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
+from auth import require_user, rate_limit_key
+
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+
+# Burst protection per user (real daily quotas are enforced via extraction_log).
+# Memory storage is per-gunicorn-worker; good enough at beta scale.
+limiter = Limiter(key_func=rate_limit_key, app=app, storage_uri="memory://")
+
+# Daily quotas protecting Anthropic/AssemblyAI credits
+USER_DAILY_EXTRACTIONS = int(os.environ.get("USER_DAILY_EXTRACTIONS", "20"))
+GLOBAL_DAILY_EXTRACTIONS = int(os.environ.get("GLOBAL_DAILY_EXTRACTIONS", "200"))
+
+
+@app.after_request
+def set_security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    return resp
+
+
+@app.context_processor
+def inject_supabase_config():
+    # The anon/publishable key is safe to expose to the browser.
+    return {
+        "supabase_url": os.environ.get("SUPABASE_URL", ""),
+        "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
+    }
+
+
+@app.errorhandler(429)
+def handle_rate_limit(e):
+    return jsonify({"error": "Too many requests. Please wait a bit and try again."}), 429
 
 # ─── Platform detection ───────────────────────────────────────────────────────
 
@@ -88,14 +121,16 @@ def get_cookies_args() -> list:
 def get_anthropic():
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
-        raise ValueError("ANTHROPIC_API_KEY is not set in Secrets")
+        print("[config] ANTHROPIC_API_KEY is not set")
+        raise ValueError("The AI service is not configured. Please contact the administrator.")
     return anthropic.Anthropic(api_key=key)
 
 def get_supabase() -> Client:
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     if not url or not key:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in Secrets")
+        print("[config] SUPABASE_URL / SUPABASE_KEY is not set")
+        raise ValueError("The database is not configured. Please contact the administrator.")
     return create_client(url, key)
 
 # ─── YouTube helpers ──────────────────────────────────────────────────────────
@@ -251,14 +286,14 @@ def extract_via_assemblyai(url, platform, title="", thumbnail_url=""):
                 raise RuntimeError("This video is private. Please use a public video.")
             if "login" in err or "sign in" in err or "cookies" in err:
                 raise RuntimeError(
-                    f"{platform} requires authentication. Upload a cookies.txt file "
-                    "(exported from your logged-in Facebook browser) to your Replit project root."
+                    f"{platform} blocked automatic processing for this video. "
+                    "Try a YouTube or TikTok link, or paste the transcript manually."
                 )
             if "not available" in err or "removed" in err or "404" in err:
                 raise RuntimeError("This video is not available or has been removed.")
             raise RuntimeError(
-                f"Could not download the {platform} video (exit {dl_proc.returncode}). "
-                "Check the Replit logs for details."
+                f"Could not download the {platform} video. "
+                "Try another video, or paste the transcript manually."
             )
 
         file_kb = os.path.getsize(audio_path) // 1024
@@ -266,7 +301,8 @@ def extract_via_assemblyai(url, platform, title="", thumbnail_url=""):
 
         aai_key = os.environ.get("ASSEMBLYAI_API_KEY")
         if not aai_key:
-            raise ValueError("ASSEMBLYAI_API_KEY is not set. Add it to your Replit Secrets.")
+            print("[config] ASSEMBLYAI_API_KEY is not set")
+            raise ValueError("The transcription service is not configured. Please contact the administrator.")
 
         import assemblyai as aai
         aai.settings.api_key = aai_key
@@ -357,11 +393,57 @@ def extract_recipe(transcript: str, title: str, description: str = "") -> dict:
                 pass
         return {"error": "Could not parse recipe from AI response"}
 
+# ─── Quota helpers ────────────────────────────────────────────────────────────
+
+def _today_start_iso() -> str:
+    now = datetime.now(timezone.utc)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+def _is_valid_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+def check_extraction_quota(sb) -> str:
+    """Return an error message if the user or the service is over quota, else ''."""
+    start = _today_start_iso()
+    user_count = (
+        sb.table("extraction_log").select("id", count="exact")
+        .eq("user_id", g.user_id).gte("created_at", start).execute().count or 0
+    )
+    if user_count >= USER_DAILY_EXTRACTIONS:
+        return "You've reached your daily extraction limit. Try again tomorrow."
+    total_count = (
+        sb.table("extraction_log").select("id", count="exact")
+        .gte("created_at", start).execute().count or 0
+    )
+    if total_count >= GLOBAL_DAILY_EXTRACTIONS:
+        return "The service is at capacity for today. Please try again tomorrow."
+    return ""
+
+def log_extraction(sb, url: str, platform: str, status: str, error: str = ""):
+    try:
+        sb.table("extraction_log").insert({
+            "user_id":  g.user_id,
+            "url":      url[:500],
+            "platform": platform,
+            "status":   status,
+            "error":    error[:500],
+        }).execute()
+    except Exception:
+        traceback.print_exc()
+
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+@app.route("/login")
+def login():
+    return render_template("login.html")
 
 @app.route("/library")
 def library():
@@ -374,6 +456,8 @@ def recipe_detail(recipe_id):
 # ─── API endpoints ────────────────────────────────────────────────────────────
 
 @app.route("/api/extract", methods=["POST"])
+@require_user
+@limiter.limit("10 per hour")
 def api_extract():
     data = request.get_json()
     url  = (data or {}).get("url", "").strip()
@@ -384,6 +468,16 @@ def api_extract():
     if not is_valid_url(url):
         return jsonify({"error": "Please use a YouTube, Facebook, Instagram, or TikTok URL."}), 400
     try:
+        sb = get_supabase()
+        quota_error = check_extraction_quota(sb)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 500
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+    if quota_error:
+        return jsonify({"error": quota_error}), 429
+    try:
         normalized = normalize_url(url)
         video = extract_transcript(normalized)
         recipe = extract_recipe(
@@ -392,34 +486,85 @@ def api_extract():
             description=video.get("description", ""),
         )
         if "error" in recipe:
+            log_extraction(sb, url, video["platform"], "no_recipe", recipe["error"])
             return jsonify({"error": recipe["error"]}), 422
         recipe["source_url"]    = url
         recipe["platform"]      = video["platform"]
         recipe["thumbnail_url"] = video["thumbnail_url"]
         if not recipe.get("title") and video["title"]:
             recipe["title"] = video["title"]
+        log_extraction(sb, url, video["platform"], "success")
         return jsonify({"success": True, "recipe": recipe})
+    except (ValueError, RuntimeError) as e:
+        # Intentionally raised with user-friendly messages
+        traceback.print_exc()
+        log_extraction(sb, url, detect_platform(url), "failed", str(e))
+        return jsonify({"error": str(e)}), 422
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        log_extraction(sb, url, detect_platform(url), "failed", str(e))
+        return jsonify({"error": "Something went wrong processing this video. Please try again."}), 500
+
+
+@app.route("/api/extract-text", methods=["POST"])
+@require_user
+@limiter.limit("10 per hour")
+def api_extract_text():
+    """Manual fallback: extract a recipe from pasted transcript/description text."""
+    data = request.get_json() or {}
+    text = (data.get("text") or "").strip()
+    url  = (data.get("url") or "").strip()
+    if not text:
+        return jsonify({"error": "Please paste some text to extract a recipe from."}), 400
+    platform = detect_platform(url) if url else "Manual"
+    if platform == "Unknown":
+        platform = "Manual"
+    try:
+        sb = get_supabase()
+        quota_error = check_extraction_quota(sb)
+        if quota_error:
+            return jsonify({"error": quota_error}), 429
+        recipe = extract_recipe(transcript=text[:8000], title="", description="")
+        if "error" in recipe:
+            log_extraction(sb, url, platform, "no_recipe", recipe["error"])
+            return jsonify({"error": recipe["error"]}), 422
+        recipe["source_url"]    = url
+        recipe["platform"]      = platform
+        recipe["thumbnail_url"] = ""
+        log_extraction(sb, url, platform, "success")
+        return jsonify({"success": True, "recipe": recipe})
+    except ValueError as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 422
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Something went wrong extracting the recipe. Please try again."}), 500
 
 
 @app.route("/api/recipes", methods=["GET"])
+@require_user
 def api_list_recipes():
     try:
         sb = get_supabase()
-        res = sb.table("recipes").select("*").order("created_at", desc=True).execute()
+        res = (
+            sb.table("recipes").select("*")
+            .eq("user_id", g.user_id)
+            .order("created_at", desc=True).execute()
+        )
         return jsonify({"recipes": res.data})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Could not load your recipes. Please try again."}), 500
 
 
 @app.route("/api/recipes", methods=["POST"])
+@require_user
 def api_save_recipe():
     data = request.get_json() or {}
     if not data.get("title"):
         return jsonify({"error": "Missing recipe title"}), 400
     record = {
+        "user_id":       g.user_id,
         "title":         data.get("title", ""),
         "description":   data.get("description", ""),
         "servings":      data.get("servings", ""),
@@ -439,26 +584,46 @@ def api_save_recipe():
         sb  = get_supabase()
         res = sb.table("recipes").insert(record).execute()
         return jsonify({"success": True, "recipe": res.data[0]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Could not save the recipe. Please try again."}), 500
 
 
 @app.route("/api/recipes/<recipe_id>", methods=["GET"])
+@require_user
 def api_get_recipe(recipe_id):
+    if not _is_valid_uuid(recipe_id):
+        return jsonify({"error": "Recipe not found"}), 404
     try:
         sb  = get_supabase()
-        res = sb.table("recipes").select("*").eq("id", recipe_id).single().execute()
+        res = (
+            sb.table("recipes").select("*")
+            .eq("id", recipe_id).eq("user_id", g.user_id)
+            .limit(1).execute()
+        )
         if not res.data:
             return jsonify({"error": "Recipe not found"}), 404
-        return jsonify({"recipe": res.data})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"recipe": res.data[0]})
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Could not load the recipe. Please try again."}), 500
 
 
 @app.route("/api/recipes/<recipe_id>", methods=["DELETE"])
+@require_user
 def api_delete_recipe(recipe_id):
+    if not _is_valid_uuid(recipe_id):
+        return jsonify({"error": "Recipe not found"}), 404
     try:
-        get_supabase().table("recipes").delete().eq("id", recipe_id).execute()
+        sb  = get_supabase()
+        res = (
+            sb.table("recipes").delete()
+            .eq("id", recipe_id).eq("user_id", g.user_id)
+            .execute()
+        )
+        if not res.data:
+            return jsonify({"error": "Recipe not found"}), 404
         return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}),
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Could not delete the recipe. Please try again."}), 500

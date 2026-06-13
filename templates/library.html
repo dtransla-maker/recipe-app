@@ -13,7 +13,11 @@
 <!-- Navigation -->
 <nav class="navbar">
   <a href="/" class="nav-logo">🍴 RecipeSnap</a>
-  <a href="/library" class="nav-link nav-active">My Recipes</a>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <a href="/library" class="nav-link nav-active">My Recipes</a>
+    <span id="nav-user" style="font-size:0.8rem;color:var(--text-muted);padding:0 4px;"></span>
+    <button class="nav-link" onclick="logout()" style="background:none;border:none;cursor:pointer;">Log out</button>
+  </div>
 </nav>
 
 <main class="library-main">
@@ -75,13 +79,19 @@
   <p>Made with ❤️ · <a href="/">Add a new recipe</a></p>
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  window.SUPABASE_URL = "{{ supabase_url }}";
+  window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+</script>
+<script src="/static/auth.js"></script>
 <script src="/static/app.js"></script>
 <script>
   let allRecipes = [];
 
   async function loadRecipes() {
     try {
-      const res = await fetch("/api/recipes");
+      const res = await authFetch("/api/recipes");
       const data = await res.json();
       allRecipes = data.recipes || [];
       document.getElementById("loading-area").classList.add("hidden");
@@ -152,7 +162,10 @@
     return d.innerHTML;
   }
 
-  loadRecipes();
+  (async () => {
+    const session = await requireAuth();
+    if (session) loadRecipes();
+  })();
 </script>
 
 </body>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Log in — RecipeSnap</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="nav-logo">🍴 RecipeSnap</a>
+</nav>
+
+<main class="hero-section">
+  <div class="hero-content">
+    <h1 class="hero-title">Welcome back</h1>
+    <p class="hero-sub">Log in with your email — we'll send you a magic link.<br>No password needed.</p>
+
+    <div class="input-card" style="max-width: 440px; margin: 0 auto;">
+      <div class="url-input-row">
+        <input
+          type="email"
+          id="login-email"
+          class="url-input"
+          placeholder="you@example.com"
+          autocomplete="email"
+        />
+        <button id="login-btn" class="btn-primary" onclick="sendMagicLink()">
+          Send link
+        </button>
+      </div>
+
+      <div id="login-status" class="status-area hidden">
+        <div class="spinner"></div>
+        <span id="login-status-text">Sending magic link…</span>
+      </div>
+
+      <div id="login-success" class="save-status hidden" style="margin-top: 12px;"></div>
+      <div id="login-error" class="error-area hidden" style="margin-top: 12px;"></div>
+    </div>
+
+    <p class="hint-text">RecipeSnap is invite-only for now. Ask Daniel for an invite if you don't have access yet.</p>
+  </div>
+</main>
+
+<footer class="footer">
+  <p>Made with ❤️</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  window.SUPABASE_URL = "{{ supabase_url }}";
+  window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+</script>
+<script src="/static/auth.js"></script>
+<script>
+  // Already logged in (or just clicked a magic link that landed here)? Go home.
+  (async () => {
+    let session = await getSession();
+    if (!session && window.location.hash.includes("access_token")) {
+      session = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), 5000);
+        sbClient.auth.onAuthStateChange((_e, s) => { if (s) { clearTimeout(timer); resolve(s); } });
+      });
+    }
+    if (session) window.location.href = "/";
+  })();
+
+  async function sendMagicLink() {
+    const email = (document.getElementById("login-email").value || "").trim();
+    const statusEl = document.getElementById("login-status");
+    const successEl = document.getElementById("login-success");
+    const errorEl = document.getElementById("login-error");
+    const btn = document.getElementById("login-btn");
+
+    successEl.classList.add("hidden");
+    errorEl.classList.add("hidden");
+
+    if (!email || !email.includes("@")) {
+      errorEl.textContent = "Please enter a valid email address.";
+      errorEl.classList.remove("hidden");
+      return;
+    }
+
+    statusEl.classList.remove("hidden");
+    btn.disabled = true;
+
+    const { error } = await sbClient.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    statusEl.classList.add("hidden");
+    btn.disabled = false;
+
+    if (error) {
+      const msg = (error.message || "").toLowerCase();
+      errorEl.textContent =
+        msg.includes("signup") || msg.includes("not allowed") || msg.includes("not found")
+          ? "This email doesn't have access yet. RecipeSnap is invite-only — ask for an invite."
+          : "Could not send the login link. Please try again in a minute.";
+      errorEl.classList.remove("hidden");
+    } else {
+      successEl.textContent = "✅ Check your email — we sent you a login link.";
+      successEl.classList.remove("hidden");
+    }
+  }
+
+  document.getElementById("login-email").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") sendMagicLink();
+  });
+</script>
+
+</body>
+</html>
