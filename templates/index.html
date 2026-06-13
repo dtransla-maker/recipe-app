@@ -13,7 +13,11 @@
 <!-- Navigation -->
 <nav class="navbar">
   <a href="/" class="nav-logo">🍴 RecipeSnap</a>
-  <a href="/library" class="nav-link">My Recipes</a>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <a href="/library" class="nav-link">My Recipes</a>
+    <span id="nav-user" style="font-size:0.8rem;color:var(--text-muted);padding:0 4px;"></span>
+    <button class="nav-link" onclick="logout()" style="background:none;border:none;cursor:pointer;">Log out</button>
+  </div>
 </nav>
 
 <!-- Hero -->
@@ -75,7 +79,7 @@
       <div id="manual-error" class="error-area hidden"></div>
     </div>
 
-    <p class="hint-text">Works with public videos only · No account needed to try</p>
+    <p class="hint-text">Works with public videos only · Invite-only beta</p>
   </div>
 </main>
 
@@ -155,12 +159,18 @@
   <p>Made with ❤️ · <a href="/library">View all saved recipes</a></p>
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  window.SUPABASE_URL = "{{ supabase_url }}";
+  window.SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+</script>
+<script src="/static/auth.js"></script>
 <script src="/static/app.js"></script>
 <script>
-  // Allow pressing Enter in URL input
   document.getElementById("video-url").addEventListener("keydown", function(e) {
     if (e.key === "Enter") startExtraction();
   });
+  requireAuth();
 </script>
 
 </body>
