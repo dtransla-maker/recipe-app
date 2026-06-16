@@ -104,6 +104,8 @@
       errorEl.textContent =
         msg.includes("signup") || msg.includes("not allowed") || msg.includes("not found")
           ? "This email doesn't have access yet. RecipeSnap is invite-only — ask for an invite."
+          : (error.status === 429 || msg.includes("rate") || msg.includes("429"))
+          ? "Too many requests. Please wait 60 seconds and try again."
           : "Could not send the login link. Please try again in a minute.";
       errorEl.classList.remove("hidden");
     } else {
